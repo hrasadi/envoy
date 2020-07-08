@@ -1,0 +1,25 @@
+==================== Test output for @envoy_dev//clang_tools/api_booster:proto_cxx_utils_test:
+Running main() from gmock_main.cc
+[==========] Running 5 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 5 tests from ProtoCxxUtils
+[ RUN      ] ProtoCxxUtils.CxxToProtoType
+[       OK ] ProtoCxxUtils.CxxToProtoType (0 ms)
+[ RUN      ] ProtoCxxUtils.ProtoToCxxType
+[       OK ] ProtoCxxUtils.ProtoToCxxType (0 ms)
+[ RUN      ] ProtoCxxUtils.RenameMethod
+[       OK ] ProtoCxxUtils.RenameMethod (0 ms)
+[ RUN      ] ProtoCxxUtils.RenameConstant
+[       OK ] ProtoCxxUtils.RenameConstant (1 ms)
+[ RUN      ] ProtoCxxUtils.RenameEnumValue
+[       OK ] ProtoCxxUtils.RenameEnumValue (0 ms)
+[----------] 5 tests from ProtoCxxUtils (1 ms total)
+
+[----------] Global test environment tear-down
+[==========] 5 tests from 1 test suite ran. (1 ms total)
+[  PASSED  ] 5 tests.
+================================================================================
+@envoy_dev//clang_tools/api_booster:proto_cxx_utils_test                 PASSED in 0.1s
+
+Executed 1 out of 1 test: 1 test passes.
+There were tests whose specified size is too big. Use the --test_verbose_timeout_warnings command line option to see which ones these are.

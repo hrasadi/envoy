@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package envoy.config.filter.http.eventflow.v2alpha;
+
+import "udpa/annotations/migrate.proto";
+import "udpa/annotations/status.proto";
+
+option java_package = "io.envoyproxy.envoy.config.filter.http.eventflow.v2alpha";
+option java_outer_classname = "EventflowProto";
+option java_multiple_files = true;
+option (udpa.annotations.file_migrate).move_to_package = "envoy.extensions.filters.http.eventflow.v3";
+option (udpa.annotations.file_status).package_version_status = ACTIVE;
+
+// [#protodoc-title: EventFlow]
+// EventFlow Filter :ref:`configuration overview <config_http_filters_eventflow>`.
+// [#extension: envoy.filters.http.cors]
+
+// EventFlow filter config.
+message EventFlow {
+}

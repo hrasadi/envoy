@@ -38,6 +38,7 @@ proto_library(
         "//envoy/config/filter/http/csrf/v2:pkg",
         "//envoy/config/filter/http/dynamic_forward_proxy/v2alpha:pkg",
         "//envoy/config/filter/http/dynamo/v2:pkg",
+        "//envoy/config/filter/http/eventflow/v2alpha:pkg",
         "//envoy/config/filter/http/ext_authz/v2:pkg",
         "//envoy/config/filter/http/fault/v2:pkg",
         "//envoy/config/filter/http/grpc_http1_bridge/v2:pkg",
