@@ -5,7 +5,7 @@
 #include <memory>
 #include <string>
 
-#include "envoy/config/trace/v3/trace.pb.h"
+#include "envoy/config/trace/v3/lightstep.pb.h"
 
 #include "common/buffer/buffer_impl.h"
 #include "common/buffer/zero_copy_input_stream_impl.h"
@@ -209,7 +209,7 @@ LightStepDriver::LightStepDriver(const envoy::config::trace::v3::LightstepConfig
 
   auto propagation_modes = MakePropagationModes(lightstep_config);
 
-  tls_->set([this, &propagation_modes](
+  tls_->set([this, propagation_modes = std::move(propagation_modes)](
                 Event::Dispatcher& dispatcher) -> ThreadLocal::ThreadLocalObjectSharedPtr {
     lightstep::LightStepTracerOptions tls_options;
     tls_options.access_token = options_->access_token;

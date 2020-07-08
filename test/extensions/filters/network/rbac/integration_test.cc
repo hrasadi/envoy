@@ -27,8 +27,8 @@ public:
   RoleBasedAccessControlNetworkFilterIntegrationTest()
       : BaseIntegrationTest(GetParam(), rbac_config) {}
 
-  static void SetUpTestSuite() {
-    rbac_config = ConfigHelper::BASE_CONFIG + R"EOF(
+  static void SetUpTestSuite() { // NOLINT(readability-identifier-naming)
+    rbac_config = absl::StrCat(ConfigHelper::baseConfig(), R"EOF(
     filter_chains:
       filters:
        -  name: rbac
@@ -44,7 +44,7 @@ public:
                     - not_id:
                         any: true
        -  name: envoy.filters.network.echo
-)EOF";
+)EOF");
   }
 
   void initializeFilter(const std::string& config) {
@@ -59,11 +59,6 @@ public:
     });
 
     BaseIntegrationTest::initialize();
-  }
-
-  void TearDown() override {
-    test_server_.reset();
-    fake_upstreams_.clear();
   }
 };
 
@@ -94,7 +89,7 @@ typed_config:
               any: true
 )EOF");
   IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
-  tcp_client->write("hello");
+  ASSERT_TRUE(tcp_client->write("hello"));
   ASSERT_TRUE(tcp_client->connected());
   tcp_client->close();
 
@@ -127,7 +122,7 @@ typed_config:
           - any: true
 )EOF");
   IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
-  tcp_client->write("hello");
+  ASSERT_TRUE(tcp_client->write("hello"));
   tcp_client->waitForDisconnect();
 
   EXPECT_EQ(0U, test_server_->counter("tcp.rbac.allowed")->value());

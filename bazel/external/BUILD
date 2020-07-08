@@ -1,3 +1,5 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
 licenses(["notice"])  # Apache 2
 
 # Use a wrapper cc_library with an empty source source file to force
@@ -21,4 +23,5 @@ genrule(
     name = "empty_cc",
     outs = ["empty.cc"],
     cmd = "touch \"$(@D)/empty.cc\"",
+    visibility = ["//visibility:public"],
 )

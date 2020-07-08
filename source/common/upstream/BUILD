@@ -1,10 +1,10 @@
-licenses(["notice"])  # Apache 2
-
 load(
     "//bazel:envoy_build_system.bzl",
     "envoy_cc_library",
     "envoy_package",
 )
+
+licenses(["notice"])  # Apache 2
 
 envoy_package()
 
@@ -13,14 +13,13 @@ envoy_cc_library(
     srcs = ["cds_api_impl.cc"],
     hdrs = ["cds_api_impl.h"],
     deps = [
-        "//include/envoy/config:discovery_service_base_interface",
         "//include/envoy/config:subscription_interface",
         "//include/envoy/event:dispatcher_interface",
         "//include/envoy/local_info:local_info_interface",
         "//source/common/common:cleanup_lib",
         "//source/common/common:minimal_logger_lib",
         "//source/common/config:api_version_lib",
-        "//source/common/config:resources_lib",
+        "//source/common/config:subscription_base_interface",
         "//source/common/config:utility_lib",
         "//source/common/protobuf:utility_lib",
         "@envoy_api//envoy/api/v2:pkg_cc_proto",
@@ -311,6 +310,7 @@ envoy_cc_library(
         "//include/envoy/upstream:resource_manager_interface",
         "//include/envoy/upstream:upstream_interface",
         "//source/common/common:assert_lib",
+        "//source/common/common:basic_resource_lib",
     ],
 )
 
@@ -357,7 +357,6 @@ envoy_cc_library(
     deps = [
         ":cluster_factory_lib",
         ":upstream_includes",
-        "//include/envoy/config:discovery_service_base_interface",
         "//include/envoy/config:grpc_mux_interface",
         "//include/envoy/config:subscription_factory_interface",
         "//include/envoy/config:subscription_interface",
@@ -366,7 +365,9 @@ envoy_cc_library(
         "//include/envoy/upstream:cluster_factory_interface",
         "//include/envoy/upstream:locality_lib",
         "//source/common/config:api_version_lib",
+        "//source/common/config:decoded_resource_lib",
         "//source/common/config:metadata_lib",
+        "//source/common/config:subscription_base_interface",
         "//source/common/config:subscription_factory_lib",
         "//source/common/config:utility_lib",
         "//source/common/config:version_converter_lib",
@@ -427,7 +428,10 @@ envoy_cc_library(
         "//include/envoy/ssl:context_interface",
         "//include/envoy/upstream:health_checker_interface",
         "//source/common/common:enum_to_int",
+        "//source/common/common:thread_lib",
         "//source/common/common:utility_lib",
+        "//source/common/http/http1:codec_stats_lib",
+        "//source/common/http/http2:codec_stats_lib",
         "//source/common/http:utility_lib",
         "//source/common/network:address_lib",
         "//source/common/network:resolver_lib",
@@ -510,6 +514,8 @@ envoy_cc_library(
         "//source/common/common:minimal_logger_lib",
         "//source/common/config:metadata_lib",
         "//source/common/config:well_known_names",
+        "//source/common/http/http1:codec_stats_lib",
+        "//source/common/http/http2:codec_stats_lib",
         "//source/common/init:manager_lib",
         "//source/common/shared_pool:shared_pool_lib",
         "//source/common/stats:isolated_store_lib",

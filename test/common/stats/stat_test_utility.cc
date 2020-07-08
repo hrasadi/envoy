@@ -135,10 +135,10 @@ MemoryTest::Mode MemoryTest::mode() {
 #endif
 }
 
-Counter& TestStore::counter(const std::string& name) {
+Counter& TestStore::counterFromString(const std::string& name) {
   Counter*& counter_ref = counter_map_[name];
   if (counter_ref == nullptr) {
-    counter_ref = &IsolatedStoreImpl::counter(name);
+    counter_ref = &IsolatedStoreImpl::counterFromString(name);
   }
   return *counter_ref;
 }
@@ -152,15 +152,16 @@ Counter& TestStore::counterFromStatNameWithTags(const StatName& stat_name,
   } else {
     // Ensures StatNames with the same string representation are specified
     // consistently using symbolic/dynamic components on every access.
-    ASSERT(counter_ref->statName() == stat_name);
+    ASSERT(counter_ref->statName() == stat_name, "Inconsistent dynamic vs symbolic "
+                                                 "stat name specification");
   }
   return *counter_ref;
 }
 
-Gauge& TestStore::gauge(const std::string& name, Gauge::ImportMode mode) {
+Gauge& TestStore::gaugeFromString(const std::string& name, Gauge::ImportMode mode) {
   Gauge*& gauge_ref = gauge_map_[name];
   if (gauge_ref == nullptr) {
-    gauge_ref = &IsolatedStoreImpl::gauge(name, mode);
+    gauge_ref = &IsolatedStoreImpl::gaugeFromString(name, mode);
   }
   return *gauge_ref;
 }
@@ -173,15 +174,16 @@ Gauge& TestStore::gaugeFromStatNameWithTags(const StatName& stat_name,
   if (gauge_ref == nullptr) {
     gauge_ref = &IsolatedStoreImpl::gaugeFromStatNameWithTags(stat_name, tags, mode);
   } else {
-    ASSERT(gauge_ref->statName() == stat_name);
+    ASSERT(gauge_ref->statName() == stat_name, "Inconsistent dynamic vs symbolic "
+                                               "stat name specification");
   }
   return *gauge_ref;
 }
 
-Histogram& TestStore::histogram(const std::string& name, Histogram::Unit unit) {
+Histogram& TestStore::histogramFromString(const std::string& name, Histogram::Unit unit) {
   Histogram*& histogram_ref = histogram_map_[name];
   if (histogram_ref == nullptr) {
-    histogram_ref = &IsolatedStoreImpl::histogram(name, unit);
+    histogram_ref = &IsolatedStoreImpl::histogramFromString(name, unit);
   }
   return *histogram_ref;
 }
@@ -194,7 +196,8 @@ Histogram& TestStore::histogramFromStatNameWithTags(const StatName& stat_name,
   if (histogram_ref == nullptr) {
     histogram_ref = &IsolatedStoreImpl::histogramFromStatNameWithTags(stat_name, tags, unit);
   } else {
-    ASSERT(histogram_ref->statName() == stat_name);
+    ASSERT(histogram_ref->statName() == stat_name, "Inconsistent dynamic vs symbolic "
+                                                   "stat name specification");
   }
   return *histogram_ref;
 }

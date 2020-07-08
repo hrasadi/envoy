@@ -3,7 +3,7 @@
 #include <sstream>
 #include <string>
 
-#include "envoy/config/trace/v3/trace.pb.h"
+#include "envoy/config/trace/v3/lightstep.pb.h"
 
 #include "common/common/base64.h"
 #include "common/grpc/common.h"
@@ -189,6 +189,32 @@ TEST_F(LightStepDriverTest, InitializeDriver) {
   }
 }
 
+TEST_F(LightStepDriverTest, DeferredTlsInitialization) {
+  EXPECT_CALL(cm_, get(Eq("fake_cluster"))).WillRepeatedly(Return(&cm_.thread_local_cluster_));
+  ON_CALL(*cm_.thread_local_cluster_.cluster_.info_, features())
+      .WillByDefault(Return(Upstream::ClusterInfo::Features::HTTP2));
+
+  const std::string yaml_string = R"EOF(
+    collector_cluster: fake_cluster
+    )EOF";
+  envoy::config::trace::v3::LightstepConfig lightstep_config;
+  TestUtility::loadFromYaml(yaml_string, lightstep_config);
+
+  std::unique_ptr<lightstep::LightStepTracerOptions> opts(new lightstep::LightStepTracerOptions());
+  opts->access_token = "sample_token";
+  opts->component_name = "component";
+
+  ON_CALL(cm_, httpAsyncClientForCluster("fake_cluster"))
+      .WillByDefault(ReturnRef(cm_.async_client_));
+
+  auto propagation_mode = Common::Ot::OpenTracingDriver::PropagationMode::TracerNative;
+
+  tls_.defer_data = true;
+  driver_ = std::make_unique<LightStepDriver>(lightstep_config, cm_, stats_, tls_, runtime_,
+                                              std::move(opts), propagation_mode, grpc_context_);
+  tls_.call();
+}
+
 TEST_F(LightStepDriverTest, AllowCollectorClusterToBeAddedViaApi) {
   EXPECT_CALL(cm_, get(Eq("fake_cluster"))).WillRepeatedly(Return(&cm_.thread_local_cluster_));
   ON_CALL(*cm_.thread_local_cluster_.cluster_.info_, features())
@@ -219,10 +245,9 @@ TEST_F(LightStepDriverTest, FlushSeveralSpans) {
             callback = &callbacks;
 
             EXPECT_EQ("/lightstep.collector.CollectorService/Report",
-                      message->headers().Path()->value().getStringView());
-            EXPECT_EQ("fake_cluster", message->headers().Host()->value().getStringView());
-            EXPECT_EQ("application/grpc",
-                      message->headers().ContentType()->value().getStringView());
+                      message->headers().getPathValue());
+            EXPECT_EQ("fake_cluster", message->headers().getHostValue());
+            EXPECT_EQ("application/grpc", message->headers().getContentTypeValue());
 
             return &request;
           }));
@@ -390,10 +415,9 @@ TEST_F(LightStepDriverTest, FlushOneFailure) {
             callback = &callbacks;
 
             EXPECT_EQ("/lightstep.collector.CollectorService/Report",
-                      message->headers().Path()->value().getStringView());
-            EXPECT_EQ("fake_cluster", message->headers().Host()->value().getStringView());
-            EXPECT_EQ("application/grpc",
-                      message->headers().ContentType()->value().getStringView());
+                      message->headers().getPathValue());
+            EXPECT_EQ("fake_cluster", message->headers().getHostValue());
+            EXPECT_EQ("application/grpc", message->headers().getContentTypeValue());
 
             return &request;
           }));
@@ -438,10 +462,9 @@ TEST_F(LightStepDriverTest, FlushWithActiveReport) {
             callback = &callbacks;
 
             EXPECT_EQ("/lightstep.collector.CollectorService/Report",
-                      message->headers().Path()->value().getStringView());
-            EXPECT_EQ("fake_cluster", message->headers().Host()->value().getStringView());
-            EXPECT_EQ("application/grpc",
-                      message->headers().ContentType()->value().getStringView());
+                      message->headers().getPathValue());
+            EXPECT_EQ("fake_cluster", message->headers().getHostValue());
+            EXPECT_EQ("application/grpc", message->headers().getContentTypeValue());
 
             return &request;
           }));
@@ -484,10 +507,9 @@ TEST_F(LightStepDriverTest, OnFullWithActiveReport) {
             callback = &callbacks;
 
             EXPECT_EQ("/lightstep.collector.CollectorService/Report",
-                      message->headers().Path()->value().getStringView());
-            EXPECT_EQ("fake_cluster", message->headers().Host()->value().getStringView());
-            EXPECT_EQ("application/grpc",
-                      message->headers().ContentType()->value().getStringView());
+                      message->headers().getPathValue());
+            EXPECT_EQ("fake_cluster", message->headers().getHostValue());
+            EXPECT_EQ("application/grpc", message->headers().getContentTypeValue());
 
             return &request;
           }));
@@ -596,24 +618,24 @@ TEST_F(LightStepDriverTest, SerializeAndDeserializeContext) {
 
     // Supply bogus context, that will be simply ignored.
     const std::string invalid_context = "notvalidcontext";
-    request_headers_.setOtSpanContext(invalid_context);
+    request_headers_.setCopy(Http::CustomHeaders::get().OtSpanContext, invalid_context);
     stats_.counter("tracing.opentracing.span_context_extraction_error").reset();
     driver_->startSpan(config_, request_headers_, operation_name_, start_time_,
                        {Tracing::Reason::Sampling, true});
     EXPECT_EQ(1U, stats_.counter("tracing.opentracing.span_context_extraction_error").value());
 
-    std::string injected_ctx(request_headers_.OtSpanContext()->value().getStringView());
+    std::string injected_ctx(request_headers_.get_(Http::CustomHeaders::get().OtSpanContext));
     EXPECT_FALSE(injected_ctx.empty());
 
     // Supply empty context.
-    request_headers_.removeOtSpanContext();
+    request_headers_.remove(Http::CustomHeaders::get().OtSpanContext);
     Tracing::SpanPtr span = driver_->startSpan(config_, request_headers_, operation_name_,
                                                start_time_, {Tracing::Reason::Sampling, true});
 
-    EXPECT_EQ(nullptr, request_headers_.OtSpanContext());
+    EXPECT_FALSE(request_headers_.has(Http::CustomHeaders::get().OtSpanContext));
     span->injectContext(request_headers_);
 
-    injected_ctx = std::string(request_headers_.OtSpanContext()->value().getStringView());
+    injected_ctx = std::string(request_headers_.get_(Http::CustomHeaders::get().OtSpanContext));
     EXPECT_FALSE(injected_ctx.empty());
 
     // Context can be parsed fine.
@@ -625,9 +647,9 @@ TEST_F(LightStepDriverTest, SerializeAndDeserializeContext) {
     // Supply parent context, request_headers has properly populated x-ot-span-context.
     Tracing::SpanPtr span_with_parent = driver_->startSpan(
         config_, request_headers_, operation_name_, start_time_, {Tracing::Reason::Sampling, true});
-    request_headers_.removeOtSpanContext();
+    request_headers_.remove(Http::CustomHeaders::get().OtSpanContext);
     span_with_parent->injectContext(request_headers_);
-    injected_ctx = std::string(request_headers_.OtSpanContext()->value().getStringView());
+    injected_ctx = std::string(request_headers_.get_(Http::CustomHeaders::get().OtSpanContext));
     EXPECT_FALSE(injected_ctx.empty());
   }
 }
@@ -662,9 +684,9 @@ TEST_F(LightStepDriverTest, MultiplePropagationModes) {
   Tracing::SpanPtr span = driver_->startSpan(config_, request_headers_, operation_name_,
                                              start_time_, {Tracing::Reason::Sampling, true});
 
-  EXPECT_EQ(nullptr, request_headers_.OtSpanContext());
+  EXPECT_FALSE(request_headers_.has(Http::CustomHeaders::get().OtSpanContext));
   span->injectContext(request_headers_);
-  EXPECT_TRUE(request_headers_.has("x-ot-span-context"));
+  EXPECT_TRUE(request_headers_.has(Http::CustomHeaders::get().OtSpanContext));
   EXPECT_TRUE(request_headers_.has("ot-tracer-traceid"));
   EXPECT_TRUE(request_headers_.has("x-b3-traceid"));
   EXPECT_TRUE(request_headers_.has("traceparent"));
@@ -688,9 +710,9 @@ TEST_F(LightStepDriverTest, SpawnChild) {
   childViaSpawn->injectContext(base2);
 
   std::string base1_context =
-      Base64::decode(std::string(base1.OtSpanContext()->value().getStringView()));
+      Base64::decode(std::string(base1.get_(Http::CustomHeaders::get().OtSpanContext)));
   std::string base2_context =
-      Base64::decode(std::string(base2.OtSpanContext()->value().getStringView()));
+      Base64::decode(std::string(base2.get_(Http::CustomHeaders::get().OtSpanContext)));
 
   EXPECT_FALSE(base1_context.empty());
   EXPECT_FALSE(base2_context.empty());

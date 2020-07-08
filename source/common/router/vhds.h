@@ -7,8 +7,8 @@
 #include <unordered_set>
 
 #include "envoy/config/core/v3/config_source.pb.h"
-#include "envoy/config/discovery_service_base.h"
 #include "envoy/config/route/v3/route_components.pb.h"
+#include "envoy/config/route/v3/route_components.pb.validate.h"
 #include "envoy/config/subscription.h"
 #include "envoy/http/codes.h"
 #include "envoy/local_info/local_info.h"
@@ -21,6 +21,7 @@
 #include "envoy/thread_local/thread_local.h"
 
 #include "common/common/logger.h"
+#include "common/config/subscription_base.h"
 #include "common/init/target_impl.h"
 #include "common/protobuf/utility.h"
 
@@ -53,23 +54,20 @@ public:
     return route_config_name + "/" + domain;
   }
   static std::string aliasToDomainName(const std::string& alias) {
-    const auto pos = alias.find_last_of("/");
+    const auto pos = alias.find_last_of('/');
     return pos == std::string::npos ? alias : alias.substr(pos + 1);
   }
 
 private:
   // Config::SubscriptionCallbacks
-  void onConfigUpdate(const Protobuf::RepeatedPtrField<ProtobufWkt::Any>&,
+  void onConfigUpdate(const std::vector<Envoy::Config::DecodedResourceRef>&,
                       const std::string&) override {
     NOT_IMPLEMENTED_GCOVR_EXCL_LINE;
   }
-  void onConfigUpdate(const Protobuf::RepeatedPtrField<envoy::service::discovery::v3::Resource>&,
+  void onConfigUpdate(const std::vector<Envoy::Config::DecodedResourceRef>&,
                       const Protobuf::RepeatedPtrField<std::string>&, const std::string&) override;
   void onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason reason,
                             const EnvoyException* e) override;
-  std::string resourceName(const ProtobufWkt::Any& resource) override {
-    return MessageUtil::anyConvert<envoy::config::route::v3::VirtualHost>(resource).name();
-  }
 
   RouteConfigUpdatePtr& config_update_info_;
   Stats::ScopePtr scope_;

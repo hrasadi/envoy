@@ -18,6 +18,27 @@ INSTANTIATE_TEST_SUITE_P(IpVersions, ProxyProtoIntegrationTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                          TestUtility::ipTestParamsToString);
 
+TEST_P(ProxyProtoIntegrationTest, CaptureTlvToMetadata) {
+  useListenerAccessLog(
+      "%DYNAMIC_METADATA(envoy.filters.listener.proxy_protocol:PP2TypeAuthority)%");
+
+  ConnectionCreationFunction creator = [&]() -> Network::ClientConnectionPtr {
+    Network::ClientConnectionPtr conn = makeClientConnection(lookupPort("http"));
+    constexpr uint8_t buffer[] = {0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54,
+                                  0x0a, 0x21, 0x11, 0x00, 0x1a, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01,
+                                  0x01, 0x02, 0x03, 0x05, 0x00, 0x02, 0x00, 0x00, 0x01, 0xff, 0x02,
+                                  0x00, 0x07, 0x66, 0x6f, 0x6f, 0x2e, 0x63, 0x6f, 0x6d};
+    Buffer::OwnedImpl buf(buffer, sizeof(buffer));
+    conn->write(buf, false);
+    return conn;
+  };
+
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
+  cleanupUpstreamAndDownstream();
+  const std::string log_line = waitForAccessLog(listener_access_log_name_);
+  EXPECT_EQ(log_line, "\"foo.com\"");
+}
+
 TEST_P(ProxyProtoIntegrationTest, V1RouterRequestAndResponseWithBodyNoBuffer) {
   ConnectionCreationFunction creator = [&]() -> Network::ClientConnectionPtr {
     Network::ClientConnectionPtr conn = makeClientConnection(lookupPort("http"));
@@ -26,7 +47,7 @@ TEST_P(ProxyProtoIntegrationTest, V1RouterRequestAndResponseWithBodyNoBuffer) {
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 TEST_P(ProxyProtoIntegrationTest, V2RouterRequestAndResponseWithBodyNoBuffer) {
@@ -40,7 +61,7 @@ TEST_P(ProxyProtoIntegrationTest, V2RouterRequestAndResponseWithBodyNoBuffer) {
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 TEST_P(ProxyProtoIntegrationTest, V1RouterRequestAndResponseWithBodyNoBufferV6) {
@@ -51,7 +72,7 @@ TEST_P(ProxyProtoIntegrationTest, V1RouterRequestAndResponseWithBodyNoBufferV6) 
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 TEST_P(ProxyProtoIntegrationTest, V2RouterRequestAndResponseWithBodyNoBufferV6) {
@@ -67,7 +88,7 @@ TEST_P(ProxyProtoIntegrationTest, V2RouterRequestAndResponseWithBodyNoBufferV6) 
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 TEST_P(ProxyProtoIntegrationTest, RouterProxyUnknownRequestAndResponseWithBodyNoBuffer) {
@@ -78,7 +99,7 @@ TEST_P(ProxyProtoIntegrationTest, RouterProxyUnknownRequestAndResponseWithBodyNo
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 TEST_P(ProxyProtoIntegrationTest, RouterProxyUnknownLongRequestAndResponseWithBodyNoBuffer) {
@@ -89,7 +110,7 @@ TEST_P(ProxyProtoIntegrationTest, RouterProxyUnknownLongRequestAndResponseWithBo
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 // Test that %DOWNSTREAM_DIRECT_REMOTE_ADDRESS%/%DOWNSTREAM_DIRECT_REMOTE_ADDRESS_WITHOUT_PORT%
@@ -110,13 +131,13 @@ TEST_P(ProxyProtoIntegrationTest, AccessLog) {
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
   const std::string log_line = waitForAccessLog(access_log_name_);
   const std::vector<absl::string_view> tokens = StringUtil::splitToken(log_line, " ");
 
   ASSERT_EQ(2, tokens.size());
   EXPECT_EQ(tokens[0], Network::Test::getLoopbackAddressString(GetParam()));
-  EXPECT_EQ(tokens[1], "1.2.3.4:12345");
+  EXPECT_EQ(tokens[1], "1.2.3.4:12345\n");
 }
 
 TEST_P(ProxyProtoIntegrationTest, DEPRECATED_FEATURE_TEST(OriginalDst)) {
@@ -147,7 +168,7 @@ TEST_P(ProxyProtoIntegrationTest, DEPRECATED_FEATURE_TEST(OriginalDst)) {
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 TEST_P(ProxyProtoIntegrationTest, ClusterProvided) {
@@ -177,7 +198,7 @@ TEST_P(ProxyProtoIntegrationTest, ClusterProvided) {
     return conn;
   };
 
-  testRouterRequestAndResponseWithBody(1024, 512, false, &creator);
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
 }
 
 } // namespace Envoy

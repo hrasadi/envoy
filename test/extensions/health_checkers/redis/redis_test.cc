@@ -49,13 +49,13 @@ public:
         "@type": type.googleapis.com/envoy.config.health_checker.redis.v2.Redis
     )EOF";
 
-    const auto& health_check_config = Upstream::parseHealthCheckFromV2Yaml(yaml);
+    const auto& health_check_config = Upstream::parseHealthCheckFromV3Yaml(yaml);
     const auto& redis_config = getRedisHealthCheckConfig(
         health_check_config, ProtobufMessage::getStrictValidationVisitor());
 
-    health_checker_.reset(new RedisHealthChecker(
+    health_checker_ = std::make_shared<RedisHealthChecker>(
         *cluster_, health_check_config, redis_config, dispatcher_, runtime_, random_,
-        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this));
+        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this);
   }
 
   void setupAlwaysLogHealthCheckFailures() {
@@ -73,13 +73,13 @@ public:
         "@type": type.googleapis.com/envoy.config.health_checker.redis.v2.Redis
     )EOF";
 
-    const auto& health_check_config = Upstream::parseHealthCheckFromV2Yaml(yaml);
+    const auto& health_check_config = Upstream::parseHealthCheckFromV3Yaml(yaml);
     const auto& redis_config = getRedisHealthCheckConfig(
         health_check_config, ProtobufMessage::getStrictValidationVisitor());
 
-    health_checker_.reset(new RedisHealthChecker(
+    health_checker_ = std::make_shared<RedisHealthChecker>(
         *cluster_, health_check_config, redis_config, dispatcher_, runtime_, random_,
-        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this));
+        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this);
   }
 
   void setupExistsHealthcheck() {
@@ -97,16 +97,16 @@ public:
         key: foo
     )EOF";
 
-    const auto& health_check_config = Upstream::parseHealthCheckFromV2Yaml(yaml);
+    const auto& health_check_config = Upstream::parseHealthCheckFromV3Yaml(yaml);
     const auto& redis_config = getRedisHealthCheckConfig(
         health_check_config, ProtobufMessage::getStrictValidationVisitor());
 
-    health_checker_.reset(new RedisHealthChecker(
+    health_checker_ = std::make_shared<RedisHealthChecker>(
         *cluster_, health_check_config, redis_config, dispatcher_, runtime_, random_,
-        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this));
+        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this);
   }
 
-  void setupExistsHealthcheckDeprecated() {
+  void setupExistsHealthcheckDeprecated(bool avoid_boosting = true) {
     const std::string yaml = R"EOF(
     timeout: 1s
     interval: 1s
@@ -120,13 +120,13 @@ public:
         key: foo
     )EOF";
 
-    const auto& health_check_config = Upstream::parseHealthCheckFromV2Yaml(yaml);
+    const auto& health_check_config = Upstream::parseHealthCheckFromV3Yaml(yaml, avoid_boosting);
     const auto& redis_config = getRedisHealthCheckConfig(
         health_check_config, ProtobufMessage::getStrictValidationVisitor());
 
-    health_checker_.reset(new RedisHealthChecker(
+    health_checker_ = std::make_shared<RedisHealthChecker>(
         *cluster_, health_check_config, redis_config, dispatcher_, runtime_, random_,
-        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this));
+        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this);
   }
 
   void setupDontReuseConnection() {
@@ -144,20 +144,20 @@ public:
         "@type": type.googleapis.com/envoy.config.health_checker.redis.v2.Redis
     )EOF";
 
-    const auto& health_check_config = Upstream::parseHealthCheckFromV2Yaml(yaml);
+    const auto& health_check_config = Upstream::parseHealthCheckFromV3Yaml(yaml);
     const auto& redis_config = getRedisHealthCheckConfig(
         health_check_config, ProtobufMessage::getStrictValidationVisitor());
 
-    health_checker_.reset(new RedisHealthChecker(
+    health_checker_ = std::make_shared<RedisHealthChecker>(
         *cluster_, health_check_config, redis_config, dispatcher_, runtime_, random_,
-        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this));
+        Upstream::HealthCheckEventLoggerPtr(event_logger_), *api_, *this);
   }
 
   Extensions::NetworkFilters::Common::Redis::Client::ClientPtr
   create(Upstream::HostConstSharedPtr, Event::Dispatcher&,
          const Extensions::NetworkFilters::Common::Redis::Client::Config&,
          const Extensions::NetworkFilters::Common::Redis::RedisCommandStatsSharedPtr&,
-         Stats::Scope&, const std::string&) override {
+         Stats::Scope&, const std::string&, const std::string&) override {
     return Extensions::NetworkFilters::Common::Redis::Client::ClientPtr{create_()};
   }
 
@@ -398,7 +398,7 @@ TEST_F(RedisHealthCheckerTest, LogInitialFailure) {
 
 TEST_F(RedisHealthCheckerTest, DEPRECATED_FEATURE_TEST(ExistsDeprecated)) {
   InSequence s;
-  setupExistsHealthcheckDeprecated();
+  setupExistsHealthcheckDeprecated(false);
 
   cluster_->prioritySet().getMockHostSet(0)->hosts_ = {
       Upstream::makeTestHost(cluster_->info_, "tcp://127.0.0.1:80")};

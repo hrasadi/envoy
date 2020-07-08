@@ -14,7 +14,6 @@
 #include "test/common/network/listener_impl_test_base.h"
 #include "test/mocks/api/mocks.h"
 #include "test/mocks/network/mocks.h"
-#include "test/mocks/server/mocks.h"
 #include "test/test_common/environment.h"
 #include "test/test_common/network_utility.h"
 #include "test/test_common/threadsafe_singleton_injector.h"
@@ -36,7 +35,7 @@ class UdpListenerImplTest : public ListenerImplTestBase {
 public:
   UdpListenerImplTest()
       : server_socket_(createServerSocket(true)), send_to_addr_(getServerLoopbackAddress()) {
-    time_system_.sleep(std::chrono::milliseconds(100));
+    time_system_.advanceTimeWait(std::chrono::milliseconds(100));
   }
 
   void SetUp() override {
@@ -92,7 +91,7 @@ protected:
                   std::chrono::milliseconds(
                       (num_packets_received_by_listener_ % num_packet_per_recv) * 100));
     // Advance time so that next onData() should have different received time.
-    time_system_.sleep(std::chrono::milliseconds(100));
+    time_system_.advanceTimeWait(std::chrono::milliseconds(100));
     ++num_packets_received_by_listener_;
   }
 
@@ -123,10 +122,9 @@ TEST_P(UdpListenerImplTest, UdpSetListeningSocketOptionsSuccess) {
 #ifdef SO_RXQ_OVFL
   // Verify that overflow detection is enabled.
   int get_overflow = 0;
-  auto& os_syscalls = Api::OsSysCallsSingleton::get();
   socklen_t int_size = static_cast<socklen_t>(sizeof(get_overflow));
-  const Api::SysCallIntResult result = os_syscalls.getsockopt(
-      server_socket_->ioHandle().fd(), SOL_SOCKET, SO_RXQ_OVFL, &get_overflow, &int_size);
+  const Api::SysCallIntResult result =
+      server_socket_->getSocketOption(SOL_SOCKET, SO_RXQ_OVFL, &get_overflow, &int_size);
   EXPECT_EQ(0, result.rc_);
   EXPECT_EQ(1, get_overflow);
 #endif
@@ -174,8 +172,8 @@ TEST_P(UdpListenerImplTest, UdpEcho) {
                                              "seventh", "eighth", "ninth", "tenth", "eleventh",
                                              "twelveth", "thirteenth", "fourteenth", "fifteenth",
                                              "sixteenth", "seventeenth"});
-  for (size_t i = 0; i < client_data.size(); ++i) {
-    client_.write(client_data[i], *send_to_addr_);
+  for (const auto& i : client_data) {
+    client_.write(i, *send_to_addr_);
   }
 
   // For unit test purposes, we assume that the data was received in order.
@@ -316,7 +314,8 @@ TEST_P(UdpListenerImplTest, UdpListenerRecvMsgError) {
   Api::MockOsSysCalls os_sys_calls;
   TestThreadsafeSingletonInjector<Api::OsSysCallsImpl> os_calls(&os_sys_calls);
   EXPECT_CALL(os_sys_calls, supportsMmsg());
-  EXPECT_CALL(os_sys_calls, recvmsg(_, _, _)).WillOnce(Return(Api::SysCallSizeResult{-1, ENOTSUP}));
+  EXPECT_CALL(os_sys_calls, recvmsg(_, _, _))
+      .WillOnce(Return(Api::SysCallSizeResult{-1, SOCKET_ERROR_NOT_SUP}));
 
   dispatcher_->run(Event::Dispatcher::RunType::Block);
 }
@@ -337,25 +336,25 @@ TEST_P(UdpListenerImplTest, SendData) {
   Address::InstanceConstSharedPtr send_from_addr;
   if (version_ == Address::IpVersion::v4) {
     // Linux kernel regards any 127.x.x.x as local address. But Mac OS doesn't.
-    send_from_addr.reset(new Address::Ipv4Instance(
+    send_from_addr = std::make_shared<Address::Ipv4Instance>(
 #ifndef __APPLE__
         "127.1.2.3",
 #else
         "127.0.0.1",
 #endif
-        server_socket_->localAddress()->ip()->port()));
+        server_socket_->localAddress()->ip()->port());
   } else {
     // Only use non-local v6 address if IP_FREEBIND is supported. Otherwise use
     // ::1 to avoid EINVAL error. Unfortunately this can't verify that sendmsg with
     // customized source address is doing the work because kernel also picks ::1
     // if it's not specified in cmsghdr.
-    send_from_addr.reset(new Address::Ipv6Instance(
+    send_from_addr = std::make_shared<Address::Ipv6Instance>(
 #ifdef IP_FREEBIND
         "::9",
 #else
         "::1",
 #endif
-        server_socket_->localAddress()->ip()->port()));
+        server_socket_->localAddress()->ip()->port());
   }
 
   UdpSendData send_data{send_from_addr->ip(), *client_.localAddress(), *buffer};
@@ -386,14 +385,16 @@ TEST_P(UdpListenerImplTest, SendDataError) {
   // Inject mocked OsSysCalls implementation to mock a write failure.
   Api::MockOsSysCalls os_sys_calls;
   TestThreadsafeSingletonInjector<Api::OsSysCallsImpl> os_calls(&os_sys_calls);
-  EXPECT_CALL(os_sys_calls, sendmsg(_, _, _)).WillOnce(Return(Api::SysCallSizeResult{-1, ENOTSUP}));
+  EXPECT_CALL(os_sys_calls, sendmsg(_, _, _))
+      .WillOnce(Return(Api::SysCallSizeResult{-1, SOCKET_ERROR_NOT_SUP}));
   auto send_result = listener_->send(send_data);
   EXPECT_FALSE(send_result.ok());
   EXPECT_EQ(send_result.err_->getErrorCode(), Api::IoError::IoErrorCode::NoSupport);
   // Failed write shouldn't drain the data.
   EXPECT_EQ(payload.length(), buffer->length());
 
-  ON_CALL(os_sys_calls, sendmsg(_, _, _)).WillByDefault(Return(Api::SysCallSizeResult{-1, EINVAL}));
+  ON_CALL(os_sys_calls, sendmsg(_, _, _))
+      .WillByDefault(Return(Api::SysCallSizeResult{-1, SOCKET_ERROR_INVAL}));
   // EINVAL should cause RELEASE_ASSERT.
   EXPECT_DEATH(listener_->send(send_data), "Invalid argument passed in");
 }

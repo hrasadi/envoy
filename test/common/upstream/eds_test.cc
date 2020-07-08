@@ -13,11 +13,13 @@
 
 #include "server/transport_socket_config_impl.h"
 
+#include "test/common/stats/stat_test_utility.h"
 #include "test/common/upstream/utility.h"
 #include "test/mocks/local_info/mocks.h"
 #include "test/mocks/protobuf/mocks.h"
 #include "test/mocks/runtime/mocks.h"
-#include "test/mocks/server/mocks.h"
+#include "test/mocks/server/admin.h"
+#include "test/mocks/server/instance.h"
 #include "test/mocks/ssl/mocks.h"
 #include "test/mocks/upstream/mocks.h"
 #include "test/test_common/utility.h"
@@ -94,8 +96,8 @@ protected:
     Envoy::Server::Configuration::TransportSocketFactoryContextImpl factory_context(
         admin_, ssl_context_manager_, *scope, cm_, local_info_, dispatcher_, random_, stats_,
         singleton_manager_, tls_, validation_visitor_, *api_);
-    cluster_.reset(
-        new EdsClusterImpl(eds_cluster_, runtime_, factory_context, std::move(scope), false));
+    cluster_ = std::make_shared<EdsClusterImpl>(eds_cluster_, runtime_, factory_context,
+                                                std::move(scope), false);
     EXPECT_EQ(initialize_phase, cluster_->initializePhase());
     eds_callbacks_ = cm_.subscription_factory_.callbacks_;
   }
@@ -107,13 +109,13 @@ protected:
 
   void doOnConfigUpdateVerifyNoThrow(
       const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment) {
-    Protobuf::RepeatedPtrField<ProtobufWkt::Any> resources;
-    resources.Add()->PackFrom(cluster_load_assignment);
-    VERBOSE_EXPECT_NO_THROW(eds_callbacks_->onConfigUpdate(resources, ""));
+    const auto decoded_resources =
+        TestUtility::decodeResources({cluster_load_assignment}, "cluster_name");
+    VERBOSE_EXPECT_NO_THROW(eds_callbacks_->onConfigUpdate(decoded_resources.refvec_, ""));
   }
 
   bool initialized_{};
-  Stats::IsolatedStoreImpl stats_;
+  Stats::TestUtil::TestStore stats_;
   Ssl::MockContextManager ssl_context_manager_;
   envoy::config::cluster::v3::Cluster eds_cluster_;
   NiceMock<MockClusterManager> cm_;
@@ -217,25 +219,15 @@ protected:
   envoy::config::endpoint::v3::ClusterLoadAssignment cluster_load_assignment_;
 };
 
-// Negative test for protoc-gen-validate constraints.
-TEST_F(EdsTest, ValidateFail) {
-  initialize();
-  envoy::config::endpoint::v3::ClusterLoadAssignment resource;
-  Protobuf::RepeatedPtrField<ProtobufWkt::Any> resources;
-  resources.Add()->PackFrom(resource);
-  EXPECT_THROW(eds_callbacks_->onConfigUpdate(resources, ""), ProtoValidationException);
-  EXPECT_FALSE(initialized_);
-}
-
 // Validate that onConfigUpdate() with unexpected cluster names rejects config.
 TEST_F(EdsTest, OnConfigUpdateWrongName) {
   envoy::config::endpoint::v3::ClusterLoadAssignment cluster_load_assignment;
   cluster_load_assignment.set_cluster_name("wrong name");
-  Protobuf::RepeatedPtrField<ProtobufWkt::Any> resources;
-  resources.Add()->PackFrom(cluster_load_assignment);
+  const auto decoded_resources =
+      TestUtility::decodeResources({cluster_load_assignment}, "cluster_name");
   initialize();
   try {
-    eds_callbacks_->onConfigUpdate(resources, "");
+    eds_callbacks_->onConfigUpdate(decoded_resources.refvec_, "");
   } catch (const EnvoyException& e) {
     eds_callbacks_->onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason::UpdateRejected,
                                          &e);
@@ -247,9 +239,8 @@ TEST_F(EdsTest, OnConfigUpdateWrongName) {
 TEST_F(EdsTest, OnConfigUpdateEmpty) {
   initialize();
   eds_callbacks_->onConfigUpdate({}, "");
-  Protobuf::RepeatedPtrField<envoy::service::discovery::v3::Resource> resources;
   Protobuf::RepeatedPtrField<std::string> removed_resources;
-  eds_callbacks_->onConfigUpdate(resources, removed_resources, "");
+  eds_callbacks_->onConfigUpdate({}, removed_resources, "");
   EXPECT_EQ(2UL, stats_.counter("cluster.name.update_empty").value());
   EXPECT_TRUE(initialized_);
 }
@@ -259,11 +250,10 @@ TEST_F(EdsTest, OnConfigUpdateWrongSize) {
   initialize();
   envoy::config::endpoint::v3::ClusterLoadAssignment cluster_load_assignment;
   cluster_load_assignment.set_cluster_name("fare");
-  Protobuf::RepeatedPtrField<ProtobufWkt::Any> resources;
-  resources.Add()->PackFrom(cluster_load_assignment);
-  resources.Add()->PackFrom(cluster_load_assignment);
+  const auto decoded_resources = TestUtility::decodeResources(
+      {cluster_load_assignment, cluster_load_assignment}, "cluster_name");
   try {
-    eds_callbacks_->onConfigUpdate(resources, "");
+    eds_callbacks_->onConfigUpdate(decoded_resources.refvec_, "");
   } catch (const EnvoyException& e) {
     eds_callbacks_->onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason::UpdateRejected,
                                          &e);
@@ -291,7 +281,10 @@ TEST_F(EdsTest, DeltaOnConfigUpdateSuccess) {
   auto* resource = resources.Add();
   resource->mutable_resource()->PackFrom(cluster_load_assignment);
   resource->set_version("v1");
-  VERBOSE_EXPECT_NO_THROW(eds_callbacks_->onConfigUpdate(resources, {}, "v1"));
+  const auto decoded_resources =
+      TestUtility::decodeResources<envoy::config::endpoint::v3::ClusterLoadAssignment>(
+          resources, "cluster_name");
+  VERBOSE_EXPECT_NO_THROW(eds_callbacks_->onConfigUpdate(decoded_resources.refvec_, {}, "v1"));
 
   EXPECT_TRUE(initialized_);
   EXPECT_EQ(1UL, stats_.counter("cluster.name.update_no_rebuild").value());
@@ -531,6 +524,37 @@ TEST_F(EdsTest, EndpointHealthStatus) {
 
   // Since the host health didn't change, expect no rebuild.
   EXPECT_EQ(rebuild_container + 1, stats_.counter("cluster.name.update_no_rebuild").value());
+}
+
+// Validate that onConfigUpdate() updates the hostname.
+TEST_F(EdsTest, Hostname) {
+  envoy::config::endpoint::v3::ClusterLoadAssignment cluster_load_assignment;
+  auto* endpoint = cluster_load_assignment.add_endpoints()->add_lb_endpoints()->mutable_endpoint();
+  auto* socket_address = endpoint->mutable_address()->mutable_socket_address();
+  socket_address->set_address("1.2.3.4");
+  socket_address->set_port_value(1234);
+  endpoint->set_hostname("foo");
+  cluster_load_assignment.set_cluster_name("fare");
+  initialize();
+  doOnConfigUpdateVerifyNoThrow(cluster_load_assignment);
+  auto& hosts = cluster_->prioritySet().hostSetsPerPriority()[0]->hosts();
+  EXPECT_EQ(hosts.size(), 1);
+  EXPECT_EQ(hosts[0]->hostname(), "foo");
+}
+
+TEST_F(EdsTest, UseHostnameForHealthChecks) {
+  envoy::config::endpoint::v3::ClusterLoadAssignment cluster_load_assignment;
+  auto* endpoint = cluster_load_assignment.add_endpoints()->add_lb_endpoints()->mutable_endpoint();
+  auto* socket_address = endpoint->mutable_address()->mutable_socket_address();
+  socket_address->set_address("1.2.3.4");
+  socket_address->set_port_value(1234);
+  endpoint->mutable_health_check_config()->set_hostname("foo");
+  cluster_load_assignment.set_cluster_name("fare");
+  initialize();
+  doOnConfigUpdateVerifyNoThrow(cluster_load_assignment);
+  auto& hosts = cluster_->prioritySet().hostSetsPerPriority()[0]->hosts();
+  EXPECT_EQ(hosts.size(), 1);
+  EXPECT_EQ(hosts[0]->hostnameForHealthChecks(), "foo");
 }
 
 // Verify that a host is removed if it is removed from discovery, stabilized, and then later
@@ -1425,9 +1449,10 @@ TEST_F(EdsTest, NoPriorityForLocalCluster) {
   add_hosts_to_priority(0, 2);
   add_hosts_to_priority(1, 1);
   initialize();
-  Protobuf::RepeatedPtrField<ProtobufWkt::Any> resources;
-  resources.Add()->PackFrom(cluster_load_assignment);
-  EXPECT_THROW_WITH_MESSAGE(eds_callbacks_->onConfigUpdate(resources, ""), EnvoyException,
+  const auto decoded_resources =
+      TestUtility::decodeResources({cluster_load_assignment}, "cluster_name");
+  EXPECT_THROW_WITH_MESSAGE(eds_callbacks_->onConfigUpdate(decoded_resources.refvec_, ""),
+                            EnvoyException,
                             "Unexpected non-zero priority for local cluster 'name'.");
 
   // Try an update which only has endpoints with P=0. This should go through.
@@ -1714,9 +1739,10 @@ TEST_F(EdsTest, MalformedIP) {
   endpoint->mutable_endpoint()->mutable_address()->mutable_socket_address()->set_port_value(80);
 
   initialize();
-  Protobuf::RepeatedPtrField<ProtobufWkt::Any> resources;
-  resources.Add()->PackFrom(cluster_load_assignment);
-  EXPECT_THROW_WITH_MESSAGE(eds_callbacks_->onConfigUpdate(resources, ""), EnvoyException,
+  const auto decoded_resources =
+      TestUtility::decodeResources({cluster_load_assignment}, "cluster_name");
+  EXPECT_THROW_WITH_MESSAGE(eds_callbacks_->onConfigUpdate(decoded_resources.refvec_, ""),
+                            EnvoyException,
                             "malformed IP address: foo.bar.com. Consider setting resolver_name or "
                             "setting cluster type to 'STRICT_DNS' or 'LOGICAL_DNS'");
 }

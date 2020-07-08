@@ -1,5 +1,6 @@
 #include <chrono>
 #include <list>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -22,7 +23,8 @@
 #include "test/mocks/local_info/mocks.h"
 #include "test/mocks/network/mocks.h"
 #include "test/mocks/protobuf/mocks.h"
-#include "test/mocks/server/mocks.h"
+#include "test/mocks/server/admin.h"
+#include "test/mocks/server/instance.h"
 #include "test/mocks/ssl/mocks.h"
 
 using testing::NiceMock;
@@ -50,8 +52,8 @@ public:
 class ClusterFactoryTestBase {
 protected:
   ClusterFactoryTestBase() : api_(Api::createApiForTest(stats_)) {
-    outlier_event_logger_.reset(new Outlier::MockEventLogger());
-    dns_resolver_.reset(new Network::MockDnsResolver());
+    outlier_event_logger_ = std::make_shared<Outlier::MockEventLogger>();
+    dns_resolver_ = std::make_shared<Network::MockDnsResolver>();
   }
 
   NiceMock<Server::MockAdmin> admin_;
@@ -78,10 +80,15 @@ TEST_F(TestStaticClusterImplTest, CreateWithoutConfig) {
       name: staticcluster
       connect_timeout: 0.25s
       lb_policy: ROUND_ROBIN
-      hosts:
-      - socket_address:
-          address: 10.0.0.1
-          port_value: 443
+      load_assignment:
+        cluster_name: staticcluster
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: 10.0.0.1
+                    port_value: 443
       cluster_type:
         name: envoy.clusters.test_static
     )EOF";
@@ -116,10 +123,15 @@ TEST_F(TestStaticClusterImplTest, CreateWithStructConfig) {
       name: staticcluster
       connect_timeout: 0.25s
       lb_policy: ROUND_ROBIN
-      hosts:
-      - socket_address:
-          address: 10.0.0.1
-          port_value: 443
+      load_assignment:
+        cluster_name: staticcluster
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: 10.0.0.1
+                    port_value: 443
       cluster_type:
           name: envoy.clusters.custom_static
           typed_config:
@@ -156,10 +168,15 @@ TEST_F(TestStaticClusterImplTest, CreateWithTypedConfig) {
       name: staticcluster
       connect_timeout: 0.25s
       lb_policy: ROUND_ROBIN
-      hosts:
-      - socket_address:
-          address: 10.0.0.1
-          port_value: 443
+      load_assignment:
+        cluster_name: staticcluster
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: 10.0.0.1
+                    port_value: 443
       cluster_type:
           name: envoy.clusters.custom_static
           typed_config:
@@ -195,10 +212,15 @@ TEST_F(TestStaticClusterImplTest, UnsupportedClusterType) {
     name: staticcluster
     connect_timeout: 0.25s
     lb_policy: ROUND_ROBIN
-    hosts:
-    - socket_address:
-        address: 10.0.0.1
-        port_value: 443
+    load_assignment:
+        cluster_name: staticcluster
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: 10.0.0.1
+                    port_value: 443
     cluster_type:
         name: envoy.clusters.bad_cluster_name
         typed_config:
@@ -227,10 +249,15 @@ TEST_F(TestStaticClusterImplTest, HostnameWithoutDNS) {
       common_lb_config:
         consistent_hashing_lb_config:
           use_hostname_for_hashing: true
-      hosts:
-      - socket_address:
-          address: 10.0.0.1
-          port_value: 443
+      load_assignment:
+        cluster_name: staticcluster
+        endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: 10.0.0.1
+                    port_value: 443
       cluster_type:
         name: envoy.clusters.test_static
     )EOF";
